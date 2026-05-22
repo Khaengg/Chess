@@ -1,0 +1,14 @@
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\bin\Debug\net10.0\ChessGame.exe
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\bin\Debug\net10.0\ChessGame.deps.json
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\bin\Debug\net10.0\ChessGame.runtimeconfig.json
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\bin\Debug\net10.0\ChessGame.dll
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\bin\Debug\net10.0\ChessGame.pdb
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.AssemblyInfoInputs.cache
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.AssemblyInfo.cs
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.csproj.CoreCompileInputs.cache
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.dll
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\refint\ChessGame.dll
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.pdb
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ChessGame.genruntimeconfig.cache
+C:\Users\Khang Hoang\Downloads\ChessEngine_CSharp\ChessGame_Package\obj\Debug\net10.0\ref\ChessGame.dll
