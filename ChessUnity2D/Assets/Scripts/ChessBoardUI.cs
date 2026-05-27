@@ -1,9 +1,80 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 public class ChessBoardUI : MonoBehaviour
 {
+    private enum GameMode
+    {
+        PvP,
+        EasyAI,
+        HardAI
+    }
+
+    private struct ChessMove
+    {
+        public int fromRow;
+        public int fromCol;
+        public int toRow;
+        public int toCol;
+
+        public ChessMove(int fromRow, int fromCol, int toRow, int toCol)
+        {
+            this.fromRow = fromRow;
+            this.fromCol = fromCol;
+            this.toRow = toRow;
+            this.toCol = toCol;
+        }
+    }
+    private struct BoardSnapshot
+    {
+        public string[,] board;
+        public string currentTurn;
+        public int selectedRow;
+        public int selectedCol;
+        public int promotionRow;
+        public int promotionCol;
+        public string promotionColor;
+        public bool waitingForPromotion;
+        public bool gameOver;
+        public int enPassantTargetRow;
+        public int enPassantTargetCol;
+        public int enPassantPawnRow;
+        public int enPassantPawnCol;
+        public bool whiteKingMoved;
+        public bool blackKingMoved;
+        public bool whiteLeftRookMoved;
+        public bool whiteRightRookMoved;
+        public bool blackLeftRookMoved;
+        public bool blackRightRookMoved;
+    }
+
+    private struct MoveRecord
+    {
+        public BoardSnapshot previousState;
+        public string movedColor;
+
+        public MoveRecord(BoardSnapshot previousState, string movedColor)
+        {
+            this.previousState = previousState;
+            this.movedColor = movedColor;
+        }
+    }
+    private GameMode gameMode = GameMode.PvP;
+    private GameMode pendingAiMode = GameMode.EasyAI;
+
+    private string playerColor = "white";
+    private string aiColor = "black";
+
+    private const int maxUndoCountPerSide = 3;
+    private int whiteUndoRemaining = maxUndoCountPerSide;
+    private int blackUndoRemaining = maxUndoCountPerSide;
+
+    private readonly Stack<MoveRecord> moveHistory = new Stack<MoveRecord>();
+
+    private bool undoLockedUntilNextMove = false;
+
     [Header("Board UI")]
     [SerializeField] private Transform boardParent;
     [SerializeField] private GameObject squarePrefab;
@@ -18,6 +89,16 @@ public class ChessBoardUI : MonoBehaviour
     [Header("Game UI")]
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private Button newGameButton;
+    [SerializeField] private Button undoButton;
+    [SerializeField] private Button pvpButton;
+    [SerializeField] private Button easyAiButton;
+    [SerializeField] private Button hardAiButton;
+    [SerializeField] private Button exitGameButton;
+
+    [Header("AI Color Choice UI")]
+    [SerializeField] private GameObject aiColorChoicePanel;
+    [SerializeField] private Button playWhiteButton;
+    [SerializeField] private Button playBlackButton;
 
     [Header("White Pieces")]
     [SerializeField] private Sprite whiteKing;
@@ -68,16 +149,19 @@ public class ChessBoardUI : MonoBehaviour
     private bool blackRightRookMoved = false;
 
     private string currentTurn = "white";
+    private const float aiMoveDelay = 0.35f;
 
     private void Start()
     {
         SetupPromotionButtons();
         SetupGameButtons();
+        HideAiColorChoicePanel();
         SetupInitialBoard();
         CreateBoard();
         RenderBoard();
 
         UpdateGameStateMessage();
+        UpdateUndoButtonLabel();
     }
 
     private void SetupPromotionButtons()
@@ -117,10 +201,102 @@ public class ChessBoardUI : MonoBehaviour
             newGameButton.onClick.RemoveAllListeners();
             newGameButton.onClick.AddListener(NewGame);
         }
+
+        if (undoButton != null)
+        {
+            undoButton.onClick.RemoveAllListeners();
+            undoButton.onClick.AddListener(UndoMove);
+        }
+
+        if (pvpButton != null)
+        {
+            pvpButton.onClick.RemoveAllListeners();
+            pvpButton.onClick.AddListener(StartPvpGame);
+        }
+        if (exitGameButton != null)
+        {
+            exitGameButton.onClick.RemoveAllListeners();
+            exitGameButton.onClick.AddListener(ExitGame);
+        }
+        if (playWhiteButton != null)
+        {
+            playWhiteButton.onClick.RemoveAllListeners();
+            playWhiteButton.onClick.AddListener(() => ChoosePlayerColorAndStartAiGame("white"));
+        }
+
+        if (playBlackButton != null)
+        {
+            playBlackButton.onClick.RemoveAllListeners();
+            playBlackButton.onClick.AddListener(() => ChoosePlayerColorAndStartAiGame("black"));
+        }
+
+        if (easyAiButton != null)
+        {
+            easyAiButton.onClick.RemoveAllListeners();
+            easyAiButton.onClick.AddListener(StartEasyAiGame);
+        }
+
+        if (hardAiButton != null)
+        {
+            hardAiButton.onClick.RemoveAllListeners();
+            hardAiButton.onClick.AddListener(StartHardAiGame);
+        }
+
+    }
+
+    private void StartPvpGame()
+    {
+        HideAiColorChoicePanel();
+        gameMode = GameMode.PvP;
+        playerColor = "white";
+        aiColor = "";
+        NewGame();
+    }
+
+    private void StartEasyAiGame()
+    {
+        ShowAiColorChoicePanel(GameMode.EasyAI);
+    }
+
+    private void StartHardAiGame()
+    {
+        ShowAiColorChoicePanel(GameMode.HardAI);
+    }
+
+    private void ShowAiColorChoicePanel(GameMode selectedAiMode)
+    {
+        pendingAiMode = selectedAiMode;
+
+        if (aiColorChoicePanel != null)
+        {
+            aiColorChoicePanel.SetActive(true);
+            UpdateStatusText($"Đã chọn {GetModeLabel(selectedAiMode)}. Chọn màu của bạn: White hoặc Black.");
+            return;
+        }
+
+        ChoosePlayerColorAndStartAiGame("white");
+    }
+
+    private void HideAiColorChoicePanel()
+    {
+        if (aiColorChoicePanel != null)
+            aiColorChoicePanel.SetActive(false);
+    }
+
+    private void ChoosePlayerColorAndStartAiGame(string chosenPlayerColor)
+    {
+        playerColor = chosenPlayerColor;
+        aiColor = GetOppositeColor(playerColor);
+        gameMode = pendingAiMode;
+
+        HideAiColorChoicePanel();
+        NewGame();
     }
 
     private void NewGame()
     {
+        CancelInvoke(nameof(MakeAiMove));
+
         selectedRow = -1;
         selectedCol = -1;
 
@@ -132,7 +308,10 @@ public class ChessBoardUI : MonoBehaviour
         gameOver = false;
         currentTurn = "white";
 
+        ResetUndoState();
+        ClearMoveHistory();
         ClearEnPassantState();
+        ResetCastlingState();
 
         if (promotionPanel != null)
             promotionPanel.SetActive(false);
@@ -140,6 +319,8 @@ public class ChessBoardUI : MonoBehaviour
         SetupInitialBoard();
         RenderBoard();
         UpdateGameStateMessage();
+        UpdateUndoButtonLabel();
+        TryMakeAiMoveIfNeeded();
     }
 
     private void SetupInitialBoard()
@@ -318,6 +499,12 @@ public class ChessBoardUI : MonoBehaviour
             return;
         }
 
+        if (IsPveMode() && currentTurn == aiColor)
+        {
+            UpdateStatusText("Đang chờ AI đi...");
+            return;
+        }
+
         string clickedPiece = board[row, col];
 
         if (selectedRow == -1 || selectedCol == -1)
@@ -358,6 +545,9 @@ public class ChessBoardUI : MonoBehaviour
 
     private void TryMoveSelectedPieceTo(int targetRow, int targetCol)
     {
+        if (selectedRow < 0 || selectedCol < 0)
+            return;
+
         string selectedPiece = board[selectedRow, selectedCol];
 
         if (string.IsNullOrEmpty(selectedPiece))
@@ -375,17 +565,28 @@ public class ChessBoardUI : MonoBehaviour
             return;
         }
 
+        ExecuteMove(selectedRow, selectedCol, targetRow, targetCol, false);
+    }
+
+    private void ExecuteMove(int fromRow, int fromCol, int targetRow, int targetCol, bool autoPromoteToQueen)
+    {
+        string selectedPiece = board[fromRow, fromCol];
+
+        if (string.IsNullOrEmpty(selectedPiece))
+            return;
+
+        undoLockedUntilNextMove = false;
+
+        string movingColor = GetPieceColor(selectedPiece);
+        SaveMoveHistory(movingColor);
         bool isCastlingMove =
             GetPieceType(selectedPiece) == "king" &&
-            Mathf.Abs(targetCol - selectedCol) == 2;
+            Mathf.Abs(targetCol - fromCol) == 2;
 
-        bool isEnPassantMove = IsEnPassantMove(selectedRow, selectedCol, targetRow, targetCol);
-
-        int originalRow = selectedRow;
-        int originalCol = selectedCol;
+        bool isEnPassantMove = IsEnPassantMove(fromRow, fromCol, targetRow, targetCol);
 
         board[targetRow, targetCol] = selectedPiece;
-        board[originalRow, originalCol] = null;
+        board[fromRow, fromCol] = null;
 
         if (isEnPassantMove)
             CaptureEnPassantPawn();
@@ -393,19 +594,30 @@ public class ChessBoardUI : MonoBehaviour
         if (isCastlingMove)
             MoveRookForCastling(targetRow, targetCol);
 
-        UpdateMovedPieceFlags(selectedPiece, originalRow, originalCol);
-        UpdateEnPassantStateAfterMove(selectedPiece, originalRow, originalCol, targetRow, targetCol);
+        UpdateMovedPieceFlags(selectedPiece, fromRow, fromCol);
+        UpdateEnPassantStateAfterMove(selectedPiece, fromRow, fromCol, targetRow, targetCol);
 
         ClearSelection();
-        RenderBoard();
+
         if (IsPawnPromotionSquare(selectedPiece, targetRow))
         {
-            StartPromotion(selectedPiece, targetRow, targetCol);
-            return;
+            if (autoPromoteToQueen)
+            {
+                board[targetRow, targetCol] = GetPieceColor(selectedPiece) + "_queen";
+            }
+            else
+            {
+                RenderBoard();
+                StartPromotion(selectedPiece, targetRow, targetCol);
+                return;
+            }
         }
 
+        RenderBoard();
         SwitchTurn();
         UpdateGameStateMessage();
+        UpdateUndoButtonLabel();
+        TryMakeAiMoveIfNeeded();
     }
     private void MoveRookForCastling(int kingRow, int kingCol)
     {
@@ -496,6 +708,8 @@ public class ChessBoardUI : MonoBehaviour
         RenderBoard();
         SwitchTurn();
         UpdateGameStateMessage();
+        UpdateUndoButtonLabel();
+        TryMakeAiMoveIfNeeded();
     }
 
     private bool IsLegalMove(int fromRow, int fromCol, int toRow, int toCol)
@@ -579,6 +793,16 @@ public class ChessBoardUI : MonoBehaviour
         enPassantTargetCol = -1;
         enPassantPawnRow = -1;
         enPassantPawnCol = -1;
+    }
+
+    private void ResetCastlingState()
+    {
+        whiteKingMoved = false;
+        blackKingMoved = false;
+        whiteLeftRookMoved = false;
+        whiteRightRookMoved = false;
+        blackLeftRookMoved = false;
+        blackRightRookMoved = false;
     }
     private bool IsBasicLegalMove(int fromRow, int fromCol, int toRow, int toCol)
     {
@@ -1126,6 +1350,415 @@ public class ChessBoardUI : MonoBehaviour
         return false;
     }
 
+    private bool IsPveMode()
+    {
+        return gameMode == GameMode.EasyAI || gameMode == GameMode.HardAI;
+    }
+
+    private string GetModeLabel()
+    {
+        return GetModeLabel(gameMode);
+    }
+
+    private string GetModeLabel(GameMode mode)
+    {
+        return mode switch
+        {
+            GameMode.EasyAI => "AI Easy",
+            GameMode.HardAI => "AI Hard",
+            _ => "PvP"
+        };
+    }
+
+    private void TryMakeAiMoveIfNeeded()
+    {
+        if (!IsPveMode())
+            return;
+
+        if (gameOver || waitingForPromotion)
+            return;
+
+        if (currentTurn != aiColor)
+            return;
+
+        CancelInvoke(nameof(MakeAiMove));
+        Invoke(nameof(MakeAiMove), aiMoveDelay);
+    }
+
+    private void MakeAiMove()
+    {
+        if (!IsPveMode() || gameOver || waitingForPromotion || currentTurn != aiColor)
+            return;
+
+        List<ChessMove> legalMoves = GetAllLegalMoves(aiColor);
+
+        if (legalMoves.Count == 0)
+        {
+            UpdateGameStateMessage();
+            return;
+        }
+
+        ChessMove selectedMove = gameMode == GameMode.EasyAI
+            ? ChooseRandomMove(legalMoves)
+            : ChooseBestMove(legalMoves, aiColor);
+
+        ExecuteMove(selectedMove.fromRow, selectedMove.fromCol, selectedMove.toRow, selectedMove.toCol, true);
+    }
+
+    private List<ChessMove> GetAllLegalMoves(string color)
+    {
+        List<ChessMove> legalMoves = new List<ChessMove>();
+
+        for (int fromRow = 0; fromRow < 8; fromRow++)
+        {
+            for (int fromCol = 0; fromCol < 8; fromCol++)
+            {
+                string pieceName = board[fromRow, fromCol];
+
+                if (string.IsNullOrEmpty(pieceName))
+                    continue;
+
+                if (!IsPieceColor(pieceName, color))
+                    continue;
+
+                for (int toRow = 0; toRow < 8; toRow++)
+                {
+                    for (int toCol = 0; toCol < 8; toCol++)
+                    {
+                        if (IsLegalMove(fromRow, fromCol, toRow, toCol))
+                            legalMoves.Add(new ChessMove(fromRow, fromCol, toRow, toCol));
+                    }
+                }
+            }
+        }
+
+        return legalMoves;
+    }
+
+    private ChessMove ChooseRandomMove(List<ChessMove> legalMoves)
+    {
+        int index = Random.Range(0, legalMoves.Count);
+        return legalMoves[index];
+    }
+
+    private ChessMove ChooseBestMove(List<ChessMove> legalMoves, string aiMoveColor)
+    {
+        int bestScore = int.MinValue;
+        List<ChessMove> bestMoves = new List<ChessMove>();
+
+        foreach (ChessMove move in legalMoves)
+        {
+            int score = ScoreMove(move, aiMoveColor);
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMoves.Clear();
+                bestMoves.Add(move);
+            }
+            else if (score == bestScore)
+            {
+                bestMoves.Add(move);
+            }
+        }
+
+        return ChooseRandomMove(bestMoves);
+    }
+
+    private int ScoreMove(ChessMove move, string aiMoveColor)
+    {
+        string movingPiece = board[move.fromRow, move.fromCol];
+        string capturedPiece = board[move.toRow, move.toCol];
+
+        int score = 0;
+
+        if (!string.IsNullOrEmpty(capturedPiece))
+            score += PieceValue(capturedPiece) * 10 - PieceValue(movingPiece);
+
+        if (IsPawnPromotionSquare(movingPiece, move.toRow))
+            score += PieceValue(aiMoveColor + "_queen");
+
+        score += ScoreMoveByTemporarySimulation(move, aiMoveColor);
+
+        return score;
+    }
+
+    private int ScoreMoveByTemporarySimulation(ChessMove move, string aiMoveColor)
+    {
+        string enemyColor = GetOppositeColor(aiMoveColor);
+        string movingPiece = board[move.fromRow, move.fromCol];
+        string capturedPiece = board[move.toRow, move.toCol];
+
+        board[move.toRow, move.toCol] = movingPiece;
+        board[move.fromRow, move.fromCol] = null;
+
+        int score = 0;
+
+        if (IsKingInCheck(enemyColor))
+            score += 60;
+
+        if (IsKingInCheck(enemyColor) && !HasAnyLegalMove(enemyColor))
+            score += 100000;
+
+        if (IsSquareAttackedByColor(move.toRow, move.toCol, enemyColor))
+            score -= PieceValue(movingPiece) / 2;
+
+        board[move.fromRow, move.fromCol] = movingPiece;
+        board[move.toRow, move.toCol] = capturedPiece;
+
+        return score;
+    }
+
+    private int PieceValue(string pieceName)
+    {
+        string pieceType = GetPieceType(pieceName);
+
+        return pieceType switch
+        {
+            "pawn" => 100,
+            "knight" => 320,
+            "bishop" => 330,
+            "rook" => 500,
+            "queen" => 900,
+            "king" => 20000,
+            _ => 0
+        };
+    }
+    private void SaveMoveHistory(string movedColor)
+    {
+        moveHistory.Push(new MoveRecord(CaptureBoardSnapshot(), movedColor));
+    }
+
+    private BoardSnapshot CaptureBoardSnapshot()
+    {
+        return new BoardSnapshot
+        {
+            board = (string[,])board.Clone(),
+            currentTurn = currentTurn,
+            selectedRow = selectedRow,
+            selectedCol = selectedCol,
+            promotionRow = promotionRow,
+            promotionCol = promotionCol,
+            promotionColor = promotionColor,
+            waitingForPromotion = waitingForPromotion,
+            gameOver = gameOver,
+            enPassantTargetRow = enPassantTargetRow,
+            enPassantTargetCol = enPassantTargetCol,
+            enPassantPawnRow = enPassantPawnRow,
+            enPassantPawnCol = enPassantPawnCol,
+            whiteKingMoved = whiteKingMoved,
+            blackKingMoved = blackKingMoved,
+            whiteLeftRookMoved = whiteLeftRookMoved,
+            whiteRightRookMoved = whiteRightRookMoved,
+            blackLeftRookMoved = blackLeftRookMoved,
+            blackRightRookMoved = blackRightRookMoved
+        };
+    }
+
+    private void RestoreBoardSnapshot(BoardSnapshot snapshot)
+    {
+        board = (string[,])snapshot.board.Clone();
+        currentTurn = snapshot.currentTurn;
+        selectedRow = snapshot.selectedRow;
+        selectedCol = snapshot.selectedCol;
+        promotionRow = snapshot.promotionRow;
+        promotionCol = snapshot.promotionCol;
+        promotionColor = snapshot.promotionColor;
+        waitingForPromotion = snapshot.waitingForPromotion;
+        gameOver = snapshot.gameOver;
+        enPassantTargetRow = snapshot.enPassantTargetRow;
+        enPassantTargetCol = snapshot.enPassantTargetCol;
+        enPassantPawnRow = snapshot.enPassantPawnRow;
+        enPassantPawnCol = snapshot.enPassantPawnCol;
+        whiteKingMoved = snapshot.whiteKingMoved;
+        blackKingMoved = snapshot.blackKingMoved;
+        whiteLeftRookMoved = snapshot.whiteLeftRookMoved;
+        whiteRightRookMoved = snapshot.whiteRightRookMoved;
+        blackLeftRookMoved = snapshot.blackLeftRookMoved;
+        blackRightRookMoved = snapshot.blackRightRookMoved;
+
+        if (promotionPanel != null)
+            promotionPanel.SetActive(waitingForPromotion);
+    }
+
+    private void UndoMove()
+    {
+        CancelInvoke(nameof(MakeAiMove));
+
+        if (waitingForPromotion)
+        {
+            UpdateStatusText("Đang chờ phong cấp. Hãy chọn quân phong cấp trước rồi mới undo.");
+            return;
+        }
+
+        if (moveHistory.Count == 0)
+        {
+            UpdateStatusText("Chưa có nước đi để undo.");
+            return;
+        }
+
+        if (undoLockedUntilNextMove)
+        {
+            UpdateStatusText("Đã undo một lần rồi. Phải đi thêm một nước mới được undo tiếp.");
+            return;
+        }
+
+        if (IsPveMode())
+            UndoPveMove();
+        else
+            UndoPvpMove();
+    }
+
+    private void UndoPvpMove()
+    {
+        MoveRecord record = moveHistory.Peek();
+
+        if (!CanUseUndoForColor(record.movedColor))
+        {
+            UpdateStatusText($"{GetColorLabel(record.movedColor)} đã hết 3 lần undo.");
+            return;
+        }
+
+        moveHistory.Pop();
+        UseUndoForColor(record.movedColor);
+        RestoreBoardSnapshot(record.previousState);
+        undoLockedUntilNextMove = true;
+
+        RenderBoard();
+        UpdateUndoButtonLabel();
+        UpdateGameStateMessage();
+    }
+
+    private void UndoPveMove()
+    {
+        MoveRecord lastMove = moveHistory.Peek();
+
+        if (lastMove.movedColor == aiColor)
+        {
+            if (moveHistory.Count < 2)
+            {
+                UpdateStatusText("Chưa có nước đi của bạn để undo.");
+                return;
+            }
+
+            MoveRecord aiMove = moveHistory.Pop();
+            MoveRecord humanMove = moveHistory.Peek();
+
+            if (humanMove.movedColor != playerColor)
+            {
+                moveHistory.Push(aiMove);
+                UpdateStatusText("Không tìm thấy nước đi gần nhất của bạn để undo.");
+                return;
+            }
+
+            if (!CanUseUndoForColor(playerColor))
+            {
+                moveHistory.Push(aiMove);
+                UpdateStatusText($"Bạn đã hết 3 lần undo cho quân {GetColorLabel(playerColor)}.");
+                return;
+            }
+
+            moveHistory.Pop();
+            UseUndoForColor(playerColor);
+            RestoreBoardSnapshot(humanMove.previousState);
+        }
+        else if (lastMove.movedColor == playerColor)
+        {
+            if (!CanUseUndoForColor(playerColor))
+            {
+                UpdateStatusText($"Bạn đã hết 3 lần undo cho quân {GetColorLabel(playerColor)}.");
+                return;
+            }
+
+            moveHistory.Pop();
+            UseUndoForColor(playerColor);
+            RestoreBoardSnapshot(lastMove.previousState);
+        }
+        else
+        {
+            UpdateStatusText("Không thể undo trạng thái hiện tại.");
+            return;
+        }
+
+        undoLockedUntilNextMove = true;
+
+        RenderBoard();
+        UpdateUndoButtonLabel();
+        UpdateGameStateMessage();
+        TryMakeAiMoveIfNeeded();
+    }
+
+    private bool CanUseUndoForColor(string color)
+    {
+        return GetUndoRemaining(color) > 0;
+    }
+
+    private void UseUndoForColor(string color)
+    {
+        if (color == "white")
+            whiteUndoRemaining = Mathf.Max(0, whiteUndoRemaining - 1);
+        else if (color == "black")
+            blackUndoRemaining = Mathf.Max(0, blackUndoRemaining - 1);
+    }
+
+    private int GetUndoRemaining(string color)
+    {
+        return color == "white" ? whiteUndoRemaining : blackUndoRemaining;
+    }
+
+    private void ResetUndoState()
+    {
+        whiteUndoRemaining = maxUndoCountPerSide;
+        blackUndoRemaining = maxUndoCountPerSide;
+        undoLockedUntilNextMove = false;
+    }
+
+    private void ClearMoveHistory()
+    {
+        moveHistory.Clear();
+    }
+
+    private void UpdateUndoButtonLabel()
+    {
+        if (undoButton == null)
+            return;
+
+        string undoText = IsPveMode()
+            ? $"Undo ({GetUndoRemaining(playerColor)})"
+            : $"Undo W:{whiteUndoRemaining} B:{blackUndoRemaining}";
+
+        undoButton.interactable = CanPressUndoButtonNow();
+
+        TMP_Text tmpLabel = undoButton.GetComponentInChildren<TMP_Text>();
+
+        if (tmpLabel != null)
+        {
+            tmpLabel.text = undoText;
+            return;
+        }
+
+        Text legacyLabel = undoButton.GetComponentInChildren<Text>();
+
+        if (legacyLabel != null)
+            legacyLabel.text = undoText;
+    }
+
+    private bool CanPressUndoButtonNow()
+    {
+        if (waitingForPromotion)
+            return false;
+
+        if (undoLockedUntilNextMove)
+            return false;
+
+        if (moveHistory.Count == 0)
+            return false;
+
+        if (IsPveMode())
+            return CanUseUndoForColor(playerColor);
+
+        return CanUseUndoForColor(moveHistory.Peek().movedColor);
+    }
     private void UpdateGameStateMessage()
     {
         bool inCheck = IsKingInCheck(currentTurn);
@@ -1152,7 +1785,21 @@ public class ChessBoardUI : MonoBehaviour
             return;
         }
 
-        UpdateStatusText($"{currentTurn} to move.");
+        if (IsPveMode())
+        {
+            if (currentTurn == playerColor)
+            {
+                UpdateStatusText($"{GetModeLabel()} - Bạn là {GetColorLabel(playerColor)}. Lượt của bạn. Undo còn {GetUndoRemaining(playerColor)}.");
+            }
+            else
+            {
+                UpdateStatusText($"{GetModeLabel()} - AI là {GetColorLabel(aiColor)} đang nghĩ...");
+            }
+
+            return;
+        }
+
+        UpdateStatusText($"PvP - {GetColorLabel(currentTurn)} to move. Undo W:{whiteUndoRemaining} B:{blackUndoRemaining}.");
     }
 
     private void UpdateStatusText(string message)
@@ -1162,7 +1809,15 @@ public class ChessBoardUI : MonoBehaviour
 
         Debug.Log(message);
     }
+    private string GetOppositeColor(string color)
+    {
+        return color == "white" ? "black" : "white";
+    }
 
+    private string GetColorLabel(string color)
+    {
+        return color == "white" ? "White" : "Black";
+    }
     private int GetStep(int value)
     {
         if (value > 0)
@@ -1267,5 +1922,15 @@ public class ChessBoardUI : MonoBehaviour
         return (row + col) % 2 == 0
             ? lightSquare
             : darkSquare;
+    }
+    private void ExitGame()
+    {
+        Debug.Log("Exit Game pressed.");
+
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+    Application.Quit();
+#endif
     }
 }
