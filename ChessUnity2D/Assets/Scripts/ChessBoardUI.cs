@@ -100,6 +100,7 @@ public class ChessBoardUI : MonoBehaviour
     [SerializeField] private Button playWhiteButton;
     [SerializeField] private Button playBlackButton;
 
+
     [Header("White Pieces")]
     [SerializeField] private Sprite whiteKing;
     [SerializeField] private Sprite whiteQueen;
